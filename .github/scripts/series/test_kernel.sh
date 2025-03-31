@@ -12,16 +12,10 @@ d=$(dirname "${BASH_SOURCE[0]}")
 . $d/utils.sh
 . $d/qemu_test_utils.sh
 
-xlen=$1
-config=$2
-fragment=$3
-toolchain=$4
-rootfs=$5
-
-cpu=$6
-fw=$7
-hw=$8
-tst=$9
+build_id=$1
+tst=$2
+rootfs="ubuntu"
+cpu="server64"
 
 cpu_to_qemu() {
     local cpu=$1
@@ -47,29 +41,6 @@ cpu_to_qemu() {
 	    ;;
     esac
 }
-
-fw_to_qemu() {
-    local hw=$1
-    local fw=$2
-    local vmlinuz=$3
-
-    case "$fw" in
-	"no_uefi")
-	    echo "$vmlinuz"
-	    ;;
-	"uboot_uefi")
-	    if [[ ${hw} == "acpi" ]]; then
-		echo "${ci_root}/firmware/rv64/rv64-u-boot-acpi.bin"
-	    else
-		echo "${ci_root}/firmware/rv64/rv64-u-boot.bin"
-	    fi
-	    ;;
-	*)
-	    echo "BADFW"
-	    ;;
-    esac
-}
-
 qemu_kernel_append="root=/dev/vda2 rw earlycon console=tty0 console=ttyS0 panic=-1 oops=panic sysctl.vm.panic_on_oom=1"
 
 qemu_rv64 () {
@@ -93,35 +64,6 @@ qemu_rv64 () {
         -kernel ${qemu_kernel} \
         -append "${qemu_kernel_append}" \
         -m 8G \
-        -object rng-random,filename=/dev/urandom,id=rng0 \
-        -device virtio-rng-device,rng=rng0 \
-        -chardev stdio,id=char0,mux=on,signal=off,logfile="${qemu_log}" \
-        -serial chardev:char0 \
-        -drive if=none,file=${qemu_image},format=raw,id=hd0 \
-        -device virtio-blk-pci,drive=hd0
-}
-
-qemu_rv32 () {
-    local qemu_to=$1
-    local qemu_log=$2
-    local qemu_bios=$3
-    local qemu_kernel=$4
-    local qemu_cpu=$5
-    local qemu_acpi=$6
-    local qemu_aia=$7
-    local qemu_image=$8
-
-    timeout --foreground ${qemu_to}s qemu-system-riscv32 \
-        -no-reboot \
-        -nodefaults \
-        -nographic \
-        -machine virt \
-	-cpu rv32 \
-        -smp 4 \
-        -bios ${qemu_bios} \
-        -kernel ${qemu_kernel} \
-        -append "${qemu_kernel_append}" \
-        -m 1G \
         -object rng-random,filename=/dev/urandom,id=rng0 \
         -device virtio-rng-device,rng=rng0 \
         -chardev stdio,id=char0,mux=on,signal=off,logfile="${qemu_log}" \
@@ -154,9 +96,8 @@ check_shutdown () {
 tmp=$(mktemp -d -p "${ci_root}")
 trap 'rm -rf "$tmp"' EXIT
 
-kernelpath=${ci_root}/$(gen_kernel_name $xlen $config $fragment $toolchain)
-vmlinuz=$(find $kernelpath -name '*vmlinuz*')
-rootfs_tar=$(echo ${ci_rootfs_root}/rootfs_${xlen}_${rootfs}_*.tar.zst)
+kernelpath=${ci_root}/${build_id}
+rootfs_tar=$(echo ${ci_rootfs_root}/rootfs_rv64_${rootfs}_*.tar.zst)
 qemu_image=$tmp/rootfs.img
 
 rc=0
@@ -167,39 +108,17 @@ if (( $rc )); then
     exit 1
 fi
 
-qemu_to=120
-if [[ $rootfs == "ubuntu" ]]; then
-    qemu_to=$(( $qemu_to * 3 ))
-    if [[ $fragment =~ nosmp || $fragment =~ lockdep || $fragment =~ kasan || $fragment =~ kfence  ]]; then
-        qemu_to=$(( $qemu_to * 10 ))
-    fi
-else
-    if [[ $fragment =~ lockdep ]]; then
-        qemu_to=$(( $qemu_to * 10 ))
-    fi
-fi
-
-if [[ $config =~ kselftest ]]; then
-    qemu_to=$((2 * 24 * 3600)) # 40h
-fi
+qemu_to=$((2 * 24 * 3600))
 
 qemu_log=${tmp}/qemu.log
 qemu_bios=${ci_root}/firmware/${xlen}/fw_dynamic.bin
-qemu_kernel=$(fw_to_qemu $hw $fw $vmlinuz)
+qemu_kernel="${ci_root}/firmware/rv64/rv64-u-boot.bin"
 qemu_cpu=$(cpu_to_qemu $cpu)
 
 qemu_acpi=off
-if [[ ${hw} == "acpi" ]]; then
-    qemu_acpi=on
-    qemu_kernel_append="${qemu_kernel_append} acpi=force"
-fi
 qemu_aia=none
-if [[ ${cpu} == "server64" || ${cpu} == "max64"  ]]; then
-    qemu_aia="aplic-imsic"
-fi
-
 export TIMEFORMAT="took qemu %0R"
-time qemu_${xlen} ${qemu_to} ${qemu_log} ${qemu_bios} ${qemu_kernel} ${qemu_cpu} ${qemu_acpi} ${qemu_aia} ${qemu_image}
+time qemu_rv64 ${qemu_to} ${qemu_log} ${qemu_bios} ${qemu_kernel} ${qemu_cpu} ${qemu_acpi} ${qemu_aia} ${qemu_image}
 
 export TIMEFORMAT="took check_shutdown %0R"
 time check_shutdown $qemu_image || rc=$?

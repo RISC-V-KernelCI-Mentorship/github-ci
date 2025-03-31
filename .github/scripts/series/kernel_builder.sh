@@ -8,18 +8,15 @@ set -euo pipefail
 d=$(dirname "${BASH_SOURCE[0]}")
 . $d/utils.sh
 
-xlen=$1
-config=$2
-fragment=$3
-toolchain=$4
+build_id=$1
 
 tm=$(mktemp -p ${ci_root})
-n=$(gen_kernel_name $xlen $config $fragment $toolchain)
+n=$build_id
 logs=$(get_logs_dir)
 rc=0
 log="build_kernel___${n}.log"
 \time --quiet -o $tm -f "took %es" \
-      $d/build_kernel.sh "${xlen}" "${config}" "${fragment}" "${toolchain}" &> "${logs}/${log}" || rc=$?
+      $d/build_kernel.sh "${build_id}" &> "${logs}/${log}" || rc=$?
 
 if grep -a ": warning:" "${logs}/${log}" | grep -qv "frame size"; then
     # TODO Can't get rid of LLVM "warning: performing pointer arithmetic on a null pointer has undefined behavior [-Wnull-pointer-arithmetic]"

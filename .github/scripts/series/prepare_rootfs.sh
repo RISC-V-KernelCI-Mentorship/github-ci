@@ -28,9 +28,9 @@ unzstd --keep --stdout $rootfs > $tmp/$(basename $rootfs .zst)
 
 rootfs="$tmp/$(basename $rootfs .zst)"
 modpath=$(find $kernelpath -wholename '*/lib/modules')
-vmlinuz=$(find $kernelpath -name '*vmlinuz*')
+vmlinuz=$(find $kernelpath -name '*Image*')
 
-kselftestpath=${kernelpath}_build/kselftest/kselftest_install
+kselftestpath=${kernelpath}/kselftest/kselftest_install
 
 imsz=0
 if [[ $tst =~ kselftest ]]; then
